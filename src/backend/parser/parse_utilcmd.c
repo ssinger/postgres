@@ -1931,7 +1931,7 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 	List	   *newcmds = NIL;
 	bool		skipValidation = true;
 	AlterTableCmd *newcmd;
-	Oid	index_oid = InvalidOid;
+	Oid	index_oid = InvalidOid;	/* Oid of the index to create/replace primary key with */
 
 	/*
 	 * We must not scribble on the passed-in AlterTableStmt, so copy it. (This
@@ -2056,12 +2056,18 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 	foreach(l, cxt.pkey->options)
 	{
 		DefElem		*def = (DefElem*)lfirst(l);
-		Oid			pkey_oid;
-		char		*index_name;
-		char		*oid_string;
-		List		*index_name_list;
-		RangeVar	*index_rv;
-		Relation	index_rel;
+
+		int2	i;	/* loop iterator for small loops */
+		Oid		pkey_oid;
+		char	*index_name;
+		char	*oid_string;
+		List	*index_name_list;
+
+		ListCell		*cell;
+		RangeVar		*index_rv;
+		Relation		index_rel;
+		HeapTuple		index_tuple;
+		Form_pg_index	index_form;
 
 		if (def->defnamespace == NULL && 0 == strcmp(def->defname, "index"))
 		{
@@ -2072,8 +2078,8 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 			continue;
 
 		/*
-		 * If we don't do this, WITH INDEX will get to DefineIndex(), and it will
-		 * throw a fit.
+		 * If we don't do this, WITH INDEX option will reach DefineIndex(), and
+		 * it will throw a fit.
 		 */
 		if (index_oid != InvalidOid)
 			elog(ERROR, "only one WITH INDEX option can be specified for a primary key.");
@@ -2104,16 +2110,64 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 		/* set index name in the statement, to affect the constraint name */
 		cxt.pkey->idxname = pstrdup(strVal(llast(index_name_list)));
 
+		/* Perform some checks on the index, for validity */
+
+		index_tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+		if (!HeapTupleIsValid(index_tuple))
+			elog(ERROR, "cache lookup failed for index %u", index_oid);
+		index_form = (Form_pg_index) GETSTRUCT(index_tuple);
+
+		if (!index_form->indisvalid)
+			elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not valid.");
+
+		if (!index_form->indisready)
+			elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not ready.");
+
+		if (!index_form->indisunique)
+			elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not a unique index.");
+
+		/* Match the PRIMARY KEY clasue from the ALTER statement, to the index */
+
+		if (index_form->indnatts != list_length(cxt.pkey->indexParams))
+			elog(ERROR, "new primary key does not match the \"%s\" index.", index_name);
+
+		i = 0;
+		foreach(cell,cxt.pkey->indexParams)
+		{
+			IndexElem	*elem = (IndexElem*)lfirst(cell);
+			int16		attnum = index_form->indkey.values[i];
+			char		*attname;
+			HeapTuple	attTuple;
+
+			if (elem->name == NULL)
+			{
+				Assert(elem->expr != NULL);
+				elog(ERROR,"primary keys on expressions are not supported.");
+			}
+
+			attTuple = SearchSysCache2(ATTNUM,
+									   ObjectIdGetDatum(RelationGetRelid(rel)),
+									   Int16GetDatum(attnum));
+			if (!HeapTupleIsValid(attTuple))
+				elog(ERROR, "cache lookup failed for attribute %d of relation %u",
+					 attnum, RelationGetRelid(rel));
+
+			attname = NameStr(((Form_pg_attribute) GETSTRUCT(attTuple))->attname);
+
+			if (strcmp(elem->name, attname) != 0)
+				elog(ERROR,"column names of requested primary key and the index in WITH INDEX do not match.");
+
+			ReleaseSysCache(attTuple);
+			++i;
+		}
+
 		pkey_oid = relationHasPrimaryKey(rel);
 
 		if (pkey_oid != InvalidOid)
 		{
 			HeapTuple		pkey_tuple;
-			HeapTuple		index_tuple;
 			Form_pg_index	pkey_form;
-			Form_pg_index	index_form;
 			AlterTableCmd	*at_cmd;
-			int2			i;
 			Relation		pkey_rel;
 
 			pkey_rel = relation_open(pkey_oid, AccessExclusiveLock);
@@ -2129,27 +2183,13 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 			if (pkey_rel->rd_rel->relowner != index_rel->rd_rel->relowner)
 				elog(ERROR, "owner of WITH INDEX argument and that of the primary key are not same.");
 
-			if (pkey_rel->rd_rel->relnamespace != index_rel->rd_rel->relnamespace)
+			if (RelationGetNamespace(pkey_rel) != RelationGetNamespace(index_rel))
 				elog(ERROR, "index in WITH INDEX argument is not in the correct namespace.");
 
 			pkey_tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(pkey_oid));
 			if (!HeapTupleIsValid(pkey_tuple))
 				elog(ERROR, "cache lookup failed for index %u", pkey_oid);
 			pkey_form = (Form_pg_index) GETSTRUCT(pkey_tuple);
-
-			index_tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
-			if (!HeapTupleIsValid(index_tuple))
-				elog(ERROR, "cache lookup failed for index %u", index_oid);
-			index_form = (Form_pg_index) GETSTRUCT(index_tuple);
-
-			if (!index_form->indisvalid)
-				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not valid.");
-
-			if (!index_form->indisready)
-				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not ready.");
-
-			if (!index_form->indisunique)
-				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not a unique index.");
 
 			/* TODO: Should we check for indcheckxmin ?*/
 
@@ -2178,9 +2218,10 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 			ReleaseSysCache(pkey_tuple);
 			ReleaseSysCache(index_tuple);
 
+			/* Make a new command to drop the existing primary key constraint */
 			at_cmd = makeNode(AlterTableCmd);
 			at_cmd->subtype = AT_DropConstraint;
-			at_cmd->name = pstrdup(NameStr(pkey_rel->rd_rel->relname));
+			at_cmd->name = pstrdup(RelationGetRelationName(pkey_rel));
 			at_cmd->behavior = DROP_CASCADE;;
 			at_cmd->missing_ok = true;
 
@@ -2188,6 +2229,18 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 
 			/* Release the lock so that it can be dropped from cache. */
 			relation_close(pkey_rel, AccessExclusiveLock);
+		}
+		else
+		{
+			/*
+			 * TODO: Are the following checks enough to make sure this is the
+			 * right kind of index for a primary key?
+			 */
+
+			if (index_rel->rd_rel->relam != BTREE_AM_OID)
+				elog(ERROR, "index mentioned in the WITH INDEX clause should be a BTree index.");
+
+			/* We have already checked above that this is a unique index */
 		}
 
 		relation_close(index_rel, NoLock);
