@@ -4559,7 +4559,10 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 {
 	bool		check_rights;
 	bool		skip_build;
+	bool		index_exists = false;
 	bool		quiet;
+	Oid			index_oid = InvalidOid;
+	ListCell	*l, *prev = NULL;
 
 	Assert(IsA(stmt, IndexStmt));
 
@@ -4570,11 +4573,55 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 	/* suppress notices when rebuilding existing index */
 	quiet = is_rebuild;
 
+	/* TODO:
+		Do stmt->options have 'WITH INDEX' option set
+			Get OID from the Value* (represented as string)
+				strspn(opr_name_or_oid, "0123456789") == strlen(opr_name_or_oid))
+				result = DatumGetObjectId(DirectFunctionCall1(oidin,
+												CStringGetDatum(opr_name_or_oid)));
+			replace InvalidOid, below, with this OID
+			set 'primary' to on;
+			set skip_build to on
+				TODO Check with -hackers that this is the right thing to do even when tab->newvals is non-null?
+	 */
+
+	foreach(l, stmt->options)
+	{
+		DefElem	*def = (DefElem*)lfirst(l);
+
+		if (def->defnamespace == NULL && 0 == strcmp(def->defname, "index"))
+		{
+			if (!(def->defaction == DEFELEM_UNSPEC || def->defaction == DEFELEM_SET))
+				elog(ERROR, "index option for a primary key has a syntax error." );
+		}
+		else
+		{
+			prev = l;
+			continue;
+		}
+
+		Assert(strspn(strVal(def->arg), "0123456789") == strlen(strVal(def->arg)));
+		Assert(stmt->primary);
+
+		index_oid = DatumGetObjectId(DirectFunctionCall1(oidin,
+										CStringGetDatum(strVal(def->arg))));
+
+		/* We override the skip_build set above */
+		skip_build = true;
+
+		index_exists = true;
+
+		break;
+	}
+
+	if (l) /* unecessary check, but good for readability */
+		stmt->options = list_delete_cell(stmt->options, l, prev);
+
 	/* The IndexStmt has already been through transformIndexStmt */
 
 	DefineIndex(stmt->relation, /* relation */
 				stmt->idxname,	/* index name */
-				InvalidOid,		/* no predefined OID */
+				index_oid,		/* no predefined OID */
 				stmt->accessMethod,		/* am name */
 				stmt->tableSpace,
 				stmt->indexParams,		/* parameters */
@@ -4589,6 +4636,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 				true,			/* is_alter_table */
 				check_rights,
 				skip_build,
+				index_exists,
 				quiet,
 				false);
 }
