@@ -4559,7 +4559,6 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 {
 	bool		check_rights;
 	bool		skip_build;
-	bool		index_exists = false;
 	bool		quiet;
 	Oid			index_oid = InvalidOid;
 	ListCell	*l, *prev = NULL;
@@ -4573,18 +4572,8 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 	/* suppress notices when rebuilding existing index */
 	quiet = is_rebuild;
 
-	/* TODO:
-		Do stmt->options have 'WITH INDEX' option set
-			Get OID from the Value* (represented as string)
-				strspn(opr_name_or_oid, "0123456789") == strlen(opr_name_or_oid))
-				result = DatumGetObjectId(DirectFunctionCall1(oidin,
-												CStringGetDatum(opr_name_or_oid)));
-			replace InvalidOid, below, with this OID
-			set 'primary' to on;
-			set skip_build to on
-				TODO Check with -hackers that this is the right thing to do even when tab->newvals is non-null?
-	 */
-
+	/* If we have the WITH INDEX option set, use that index for this primary key */
+	if (stmt->primary)
 	foreach(l, stmt->options)
 	{
 		DefElem	*def = (DefElem*)lfirst(l);
@@ -4601,15 +4590,12 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 		}
 
 		Assert(strspn(strVal(def->arg), "0123456789") == strlen(strVal(def->arg)));
-		Assert(stmt->primary);
 
 		index_oid = DatumGetObjectId(DirectFunctionCall1(oidin,
 										CStringGetDatum(strVal(def->arg))));
 
 		/* We override the skip_build set above */
 		skip_build = true;
-
-		index_exists = true;
 
 		break;
 	}
@@ -4621,7 +4607,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 
 	DefineIndex(stmt->relation, /* relation */
 				stmt->idxname,	/* index name */
-				index_oid,		/* no predefined OID */
+				index_oid,		/* predefined OID, if any */
 				stmt->accessMethod,		/* am name */
 				stmt->tableSpace,
 				stmt->indexParams,		/* parameters */
@@ -4636,10 +4622,36 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 				true,			/* is_alter_table */
 				check_rights,
 				skip_build,
-				index_exists,
+				index_oid != InvalidOid,
 				quiet,
 				false);
+
+	/* Now update pg_index tuple to mark this index as indisprimary */
+	if (stmt->primary && index_oid != InvalidOid)
+	{
+		Relation	pg_index;
+		HeapTuple	indexTuple;
+		Form_pg_index indexForm;
+
+		pg_index = heap_open(IndexRelationId, RowExclusiveLock);
+
+		indexTuple = SearchSysCacheCopy1(INDEXRELID,
+										 ObjectIdGetDatum(index_oid));
+		if (!HeapTupleIsValid(indexTuple))
+			elog(ERROR, "cache lookup failed for index %u", index_oid);
+		indexForm = (Form_pg_index) GETSTRUCT(indexTuple);
+
+		indexForm->indisprimary = true;
+		simple_heap_update(pg_index, &indexTuple->t_self, indexTuple);
+		CatalogUpdateIndexes(pg_index, indexTuple);
+
+		heap_freetuple(indexTuple);
+		heap_close(pg_index, RowExclusiveLock);
+
+		CommandCounterIncrement();
+	}
 }
+
 
 /*
  * ALTER TABLE ADD CONSTRAINT

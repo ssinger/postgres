@@ -2048,44 +2048,20 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 
 	transformFKConstraints(pstate, &cxt, skipValidation, true);
 
-	/* TODO: look at cxt->pkey->options and see if it has 'WITH INDEX'; if yes
-			then cook-up an ALTER TABLE DROP CONSTRAINT for table's primary key,
-			and push into newcmds
-
-	Check if cxt->pkey->options has a 'WITH INDEX' element
-		take an exclusive lock on that index
-
-		Does this table have a primary key
-			check if index mentioned in cxt->pkey matches that PKEY definition,
-				Does column list match
-				Do the opclasses match
-				Does index type match (BTree for now)
-				Do they have the same owner
-
-		Append a new command to newcmds to drop the PKey constraint
-			use 'rel' variable to get primary key's OID ( modify and reuse relationHasPrimaryKey() )
-			use relation_open() to get pkey's relation
-			use the returned Relation->rd_rel->relname to build DROP CONSTRAINT command
-			set missingok member of the command so that this would work even if there was already a DROP CONSTRAINT for the PKey.
-			push this command to newcmds
-
-		Chenge the 'WITH INDEX' element, and replace index name in Value* to have decimal representation of index's OID.
-			This will be used by ATExecAddIndex().
-
-		BIG TODO: convert all elog() calls into ereport() and proper errcode()
-					calls and write better messages.
-	  */
-
+	/*
+	 * If the PRIMARY KEY clasue has WITH INDEX option set, then prepare to use
+	 * that index as the primary key.
+	 */
 	if (cxt.pkey)
 	foreach(l, cxt.pkey->options)
 	{
-		DefElem *def = (DefElem*)lfirst(l);
-		Oid pkey_oid;
-		char *index_name;
-		char *oid_string;
-		List *index_name_list;
-		RangeVar *index_rv;
-		Relation index_rel;
+		DefElem		*def = (DefElem*)lfirst(l);
+		Oid			pkey_oid;
+		char		*index_name;
+		char		*oid_string;
+		List		*index_name_list;
+		RangeVar	*index_rv;
+		Relation	index_rel;
 
 		if (def->defnamespace == NULL && 0 == strcmp(def->defname, "index"))
 		{
@@ -2096,7 +2072,7 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 			continue;
 
 		/*
-		 * If we don't do this, then this will get to DefineIndex(), and it will
+		 * If we don't do this, WITH INDEX will get to DefineIndex(), and it will
 		 * throw a fit.
 		 */
 		if (index_oid != InvalidOid)
@@ -2109,7 +2085,7 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 
 		index_name_list = stringToQualifiedNameList(index_name);
 
-		/* TODO: Should we assert that this is a non-qualified name? */
+		/* TODO: Should we assert that this is not a qualified name? */
 		index_rv = makeRangeVarFromNameList(index_name_list);
 
 		index_rel = relation_openrv(index_rv, AccessExclusiveLock);
@@ -2119,13 +2095,14 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 		oid_string = DatumGetCString(DirectFunctionCall1(oidout,
 												ObjectIdGetDatum(index_oid)));
 
-		/* replace index name with its Oid::cstring */
+		/*
+		 * Replace index name with its Oid::cstring; ATAddIndex() will use this
+		 * OID for the primary key.
+		 */
 		def->arg = (Node*)makeString(oid_string);
 
-		/* TODO: set index name in the statement, to affect the constraint name */
+		/* set index name in the statement, to affect the constraint name */
 		cxt.pkey->idxname = pstrdup(strVal(llast(index_name_list)));
-
-		/* TODO: make sure the index is in the same schema/namespace as the table */
 
 		pkey_oid = relationHasPrimaryKey(rel);
 
@@ -2139,18 +2116,21 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 			int2			i;
 			Relation		pkey_rel;
 
+			pkey_rel = relation_open(pkey_oid, AccessExclusiveLock);
+
 			/*
 			 * Check pg_class->relam to see if the index type match. As of now, only
 			 * BTree indexes are used to implement primary keys, but it doesn't hurt
 			 * to be future proof.
 			 */
-			pkey_rel = relation_open(pkey_oid, AccessExclusiveLock);
-
 			if (pkey_rel->rd_rel->relam != index_rel->rd_rel->relam)
 				elog(ERROR, "index type of WITH INDEX argument and that of the primary key are not the same.");
 
 			if (pkey_rel->rd_rel->relowner != index_rel->rd_rel->relowner)
 				elog(ERROR, "owner of WITH INDEX argument and that of the primary key are not same.");
+
+			if (pkey_rel->rd_rel->relnamespace != index_rel->rd_rel->relnamespace)
+				elog(ERROR, "index in WITH INDEX argument is not in the correct namespace.");
 
 			pkey_tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(pkey_oid));
 			if (!HeapTupleIsValid(pkey_tuple))
@@ -2165,10 +2145,13 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 			if (!index_form->indisvalid)
 				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not valid.");
 
+			if (!index_form->indisready)
+				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not ready.");
+
 			if (!index_form->indisunique)
 				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not a unique index.");
 
-			/* TODO: Should we check for indisready, indcheckxmin ?*/
+			/* TODO: Should we check for indcheckxmin ?*/
 
 			if (index_form->indrelid != pkey_form->indrelid)
 				elog(ERROR, "index mentioned in the WITH INDEX clause of primary key is not on the same table.");
@@ -2205,28 +2188,6 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 
 			/* Release the lock so that it can be dropped from cache. */
 			relation_close(pkey_rel, AccessExclusiveLock);
-		}
-
-		/* NOw update pg_index tuple to mark this index as indisprimary */
-		{
-			Relation	pg_index;
-			HeapTuple	indexTuple;
-			Form_pg_index indexForm;
-
-			pg_index = heap_open(IndexRelationId, RowExclusiveLock);
-
-			indexTuple = SearchSysCacheCopy1(INDEXRELID,
-											 ObjectIdGetDatum(index_oid));
-			if (!HeapTupleIsValid(indexTuple))
-				elog(ERROR, "cache lookup failed for index %u", index_oid);
-			indexForm = (Form_pg_index) GETSTRUCT(indexTuple);
-
-			indexForm->indisprimary = true;
-			simple_heap_update(pg_index, &indexTuple->t_self, indexTuple);
-			CatalogUpdateIndexes(pg_index, indexTuple);
-
-			heap_freetuple(indexTuple);
-			heap_close(pg_index, RowExclusiveLock);
 		}
 
 		relation_close(index_rel, NoLock);

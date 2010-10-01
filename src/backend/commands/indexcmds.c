@@ -1545,7 +1545,7 @@ ChooseIndexColumnNames(List *indexElems)
  *
  *	See whether an existing relation has a primary key.
  */
-Oid 
+Oid
 relationHasPrimaryKey(Relation rel)
 {
 	Oid			indexoid = InvalidOid;
