@@ -4578,12 +4578,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 	{
 		DefElem	*def = (DefElem*)lfirst(l);
 
-		if (def->defnamespace == NULL && 0 == strcmp(def->defname, "index"))
-		{
-			if (!(def->defaction == DEFELEM_UNSPEC || def->defaction == DEFELEM_SET))
-				elog(ERROR, "index option for a primary key has a syntax error." );
-		}
-		else
+		if (!(def->defnamespace == NULL && 0 == strcmp(def->defname, "index")))
 		{
 			prev = l;
 			continue;
@@ -4594,8 +4589,9 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 		index_oid = DatumGetObjectId(DirectFunctionCall1(oidin,
 										CStringGetDatum(strVal(def->arg))));
 
-		/* We override the skip_build set above */
+		/* We override the params set above */
 		skip_build = true;
+		quiet = false; /* We don't want the 'will create implicit index' message */
 
 		break;
 	}
