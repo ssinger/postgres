@@ -4591,7 +4591,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 
 		/* We override the params set above */
 		skip_build = true;
-		quiet = false; /* We don't want the 'will create implicit index' message */
+		quiet = true; /* We don't want the 'will create implicit index' message */
 
 		break;
 	}

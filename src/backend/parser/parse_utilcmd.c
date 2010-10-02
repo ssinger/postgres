@@ -1997,12 +1997,12 @@ replacePrimaryKeyIndex(Relation rel, IndexStmt *pkey)
 		if (!index_form->indisunique)
 			elog(ERROR, "primary key on a non-unique index is not allowed");
 
-		if (index_rel->rd_indextuple == NULL ||
-			heap_attisnull(index_rel->rd_indextuple, Anum_pg_index_indexprs))
+		if (index_rel->rd_indextuple != NULL &&
+			!heap_attisnull(index_rel->rd_indextuple, Anum_pg_index_indexprs))
 			elog(ERROR, "primary key on an expression index is not allowed");
 
-		if (index_rel->rd_indextuple == NULL ||
-			heap_attisnull(index_rel->rd_indextuple, Anum_pg_index_indpred))
+		if (index_rel->rd_indextuple != NULL &&
+			!heap_attisnull(index_rel->rd_indextuple, Anum_pg_index_indpred))
 			elog(ERROR, "primary key on a partial index is not allowed");
 
 		/* Match the PRIMARY KEY clasue from the ALTER statement, to the index */
@@ -2094,7 +2094,6 @@ replacePrimaryKeyIndex(Relation rel, IndexStmt *pkey)
 			}
 
 			ReleaseSysCache(pkey_tuple);
-			ReleaseSysCache(index_tuple);
 
 			/* Make a new command to drop the existing primary key constraint */
 			at_cmd = makeNode(AlterTableCmd);
@@ -2119,10 +2118,11 @@ replacePrimaryKeyIndex(Relation rel, IndexStmt *pkey)
 			/* We have already checked above that this is a unique index */
 		}
 
+		ReleaseSysCache(index_tuple);
 		relation_close(index_rel, NoLock);
 
 		/*
-		 * Do not break; at the end of the loop. Use this opprtunity to catch
+		 * Do not break out of the loop. Use this opprtunity to catch
 		 * multiple 'WITH INDEX' clauses
 		 */
 	}
@@ -2268,7 +2268,12 @@ transformAlterTableStmt(AlterTableStmt *stmt, const char *queryString)
 	transformFKConstraints(pstate, &cxt, skipValidation, true);
 
 	if (cxt.pkey && cxt.pkey->options)
-		newcmds = lappend(newcmds, replacePrimaryKeyIndex(rel, cxt.pkey));
+	{
+		AlterTableCmd *drop_pkey = replacePrimaryKeyIndex(rel, cxt.pkey);
+
+		if (drop_pkey != NULL)
+			newcmds = lappend(newcmds, drop_pkey);
+	}
 
 	/*
 	 * Push any index-creation commands into the ALTER, so that they can be
