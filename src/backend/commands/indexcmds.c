@@ -122,6 +122,7 @@ DefineIndex(RangeVar *heapRelation,
 			bool is_alter_table,
 			bool check_rights,
 			bool skip_build,
+			bool index_exists,
 			bool quiet,
 			bool concurrent)
 {
@@ -483,6 +484,7 @@ DefineIndex(RangeVar *heapRelation,
 					 isconstraint, deferrable, initdeferred,
 					 allowSystemTableMods,
 					 skip_build || concurrent,
+					 index_exists,
 					 concurrent);
 
 	if (!concurrent)

@@ -1230,9 +1230,6 @@ transformIndexConstraints(ParseState *pstate, CreateStmtContext *cxt)
 	 * can happen if, for instance, the user writes UNIQUE PRIMARY KEY. A
 	 * strict reading of SQL92 would suggest raising an error instead, but
 	 * that strikes me as too anal-retentive. - tgl 2001-02-14
-	 *
-	 * XXX in ALTER TABLE case, it'd be nice to look for duplicate
-	 * pre-existing indexes, too.
 	 */
 	Assert(cxt->alist == NIL);
 	if (cxt->pkey != NULL)
