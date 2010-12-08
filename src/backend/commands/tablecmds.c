@@ -4985,6 +4985,11 @@ get_constraint_index_oid(IndexStmt *idx_stmt)
 	if (idx_stmt->options == NIL)
 		return InvalidOid;
 
+	if (idx_stmt->tableSpace != NULL)
+		ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+			errmsg("cannot specify a tablespace when using WITH INDEX option")));
+
 	rel = relation_openrv(idx_stmt->relation, AccessExclusiveLock);
 
 	foreach(l, idx_stmt->options)
