@@ -1477,6 +1477,7 @@ typedef struct Constraint
 
 	/* Fields used for index constraints (UNIQUE, PRIMARY KEY, EXCLUSION): */
 	List	   *options;		/* options from WITH clause */
+	char	   *indexname;		/* existing index to use */
 	char	   *indexspace;		/* index tablespace; NULL for default */
 	/* These could be, but currently are not, used for UNIQUE/PKEY: */
 	char	   *access_method;	/* index access method; NULL for default */
