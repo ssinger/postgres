@@ -125,4 +125,4 @@ test: largeobject
 test: with
 test: xml
 test: stats
-test: pkey_with_index
+test: constraint_with_index

@@ -1425,7 +1425,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					errmsg("index \"%s\" contains expressions", index_name),
 					errdetail("Cannot create PRIMARY KEY/UNIQUE constraint"
-								" using an expression index.")));
+								" using an expressional index.")));
 
 		if (index_rel->rd_indextuple != NULL &&
 			!heap_attisnull(index_rel->rd_indextuple, Anum_pg_index_indpred))
