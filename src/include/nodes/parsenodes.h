@@ -1973,6 +1973,7 @@ typedef struct IndexStmt
 	bool		deferrable;		/* is the constraint DEFERRABLE? */
 	bool		initdeferred;	/* is the constraint INITIALLY DEFERRED? */
 	bool		concurrent;		/* should this be a concurrent index build? */
+	Oid			indexoid;		/* in ALTER TABLE, OID of an existing index, if any */
 } IndexStmt;
 
 /* ----------------------

@@ -1352,72 +1352,31 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 
 		return index;
 	}
-#if 0
+
+	/* ALTER TABLE ADD PRIMARY/UNIQUE USING INDEX */
 	if (constraint->keys == NIL)
 	{
-		Assert(constraint->indexname != NULL);
+		int			i;
+		Oid			index_oid	= InvalidOid;
+		char	   *index_name;
+		Relation	rel			= ctx->rel;
 
-get_constraint_index_oid(IndexStmt *idx_stmt)
-{
-	Oid			index_oid = InvalidOid;
-	char	   *index_name;
-	ListCell   *l;
-	ListCell   *prev = NULL;
-	ListCell   *option = NULL;
-	Relation	rel;
-
-	/* We expect only constraint indexes to come until this point */
-	if (!idx_stmt->isconstraint)
-		return InvalidOid;
-
-	/* We support pre-built indexes only on PRIMARY and UNIQUE constraints */
-	if (!idx_stmt->primary && !idx_stmt->unique)
-		return InvalidOid;
-
-	if (idx_stmt->options == NIL)
-		return InvalidOid;
-
-	if (idx_stmt->tableSpace != NULL)
-		ereport(ERROR,
-			(errcode(ERRCODE_SYNTAX_ERROR),
-			errmsg("cannot specify a tablespace when using WITH INDEX option")));
-
-	rel = relation_openrv(idx_stmt->relation, AccessExclusiveLock);
-
-	foreach(l, idx_stmt->options)
-	{
-		int				i;
-		DefElem		   *def = (DefElem*)lfirst(l);
-		ListCell	   *cell;
 		Relation		index_rel;
 		Form_pg_index	index_form;
 
-		if (def->defnamespace != NULL || strcmp(def->defname, "index") != 0)
-		{
-			prev = l;
-			continue;
-		}
+		/* We support pre-built indexes only on PRIMARY and UNIQUE constraints */
+		Assert(constraint->contype == CONSTR_PRIMARY
+				|| constraint->contype == CONSTR_UNIQUE);
 
-		option = l;
+		/* Make sure grammar doesn't allow this */
+		Assert(constraint->indexname != NULL);
 
-		/*
-		 * If we don't do this, WITH INDEX option will reach DefineIndex(), and
-		 * it will throw a fit.
-		 */
-		if (OidIsValid(index_oid))
+		if (!cxt->alter)
 			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("only one WITH INDEX option can be specified for"
-							" a PRIMARY KEY/UNIQUE constraint")));
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot use an existing index in CREATE TABLE")));
 
-		if (!IsA(def->arg, String))
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						errmsg("syntax error"),
-						errdetail("WITH INDEX option in a PRIMARY KEY/UNIQUE"
-									" constraint should be a string value.")));
-
-		index_name = strVal(def->arg);
+		index_name = constraint->indexname;
 
 		/* Look for the index in the same schema as the table */
 		index_oid = get_relname_relid(index_name, RelationGetNamespace(rel));
@@ -1425,7 +1384,7 @@ get_constraint_index_oid(IndexStmt *idx_stmt)
 		if (!OidIsValid(index_oid))
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					errmsg("relation \"%s\" not found", index_name)));
+					errmsg("index \"%s\" not found", index_name)));
 
 		/* This will throw an error if it is not an index */
 		index_rel = index_open(index_oid, AccessExclusiveLock);
@@ -1440,7 +1399,7 @@ get_constraint_index_oid(IndexStmt *idx_stmt)
 		index_form = index_rel->rd_index;
 
 		if (index_form->indrelid != RelationGetRelid(rel))
-			elog(ERROR, "index \"%s\" does not belong to \"%s\"",
+			elog(ERROR, "index \"%s\" does not belong to table \"%s\"",
 							index_name, RelationGetRelationName(rel));
 
 		if (!index_form->indisvalid)
@@ -1476,25 +1435,12 @@ get_constraint_index_oid(IndexStmt *idx_stmt)
 					errdetail("Cannot create PRIMARY KEY/UNIQUE constraint"
 								" using a partial index.")));
 
-		/* Match the PRIMARY KEY clasue from the ALTER statement with the index */
-		if (index_form->indnatts != list_length(idx_stmt->indexParams))
-			elog(ERROR, "PRIMARY KEY/UNIQUE constraint definition does not"
-						" match the index");
-
-		/* XXX: Assert here? */
-		if (index_form->indnatts > rel->rd_att->natts)
-			elog(ERROR, "index \"%s\" has more columns than the table",
-							index_name);
-
-		i = 0;
-		foreach(cell, idx_stmt->indexParams)
+		for (i = 0; i < index_form->indnatts; ++i)
 		{
-			IndexElem  *elem = (IndexElem*)lfirst(cell);
-			int16		attnum = index_form->indkey.values[i];
-			char	   *attname;
+			int2 attnum = index_form->indkeys->values[i];
+			char *attname;
 
-			/* Grammar already prevents this by disallowing expressions. */
-			Assert(elem->name != NULL);
+			Assert(attnum <= rel->rd_rel->relnatts);
 
 			/*
 			 * We need not worry about attisdropped, since this index's
@@ -1502,62 +1448,21 @@ get_constraint_index_oid(IndexStmt *idx_stmt)
 			 */
 			Assert(!rel->rd_att->attrs[attnum-1]->attisdropped);
 
-			attname = NameStr(rel->rd_att->attrs[attnum-1]->attname);
+			if (attnum > 0)
+				attname = strdup(NameStr(rel->rd_att->attrs[attnum-1].attname));
+			else if (attnum < 0)
+				attname = NameStr(SystemAttributeDefinition(attnum, rel->rd_rel->relhasoids));
+			else
+				Assert(false); // We checked above for this case
 
-			if (strcmp(elem->name, attname) != 0)
-				elog(ERROR, "index columns do not match PRIMARY KEY/UNIQUE"
-							" constraint definition");
-
-			++i;
+			constraint->keys = lappend(constraint->keys, attname);
 		}
 
-		/* Close the relation but keep the lock */
+		/* Close the index's relation but keep the lock */
 		relation_close(index_rel, NoLock);
 
-		/*
-		 * Do not break out of the loop. Use this opprtunity to catch
-		 * multiple 'WITH INDEX' clauses.
-		 */
+		index->indexoid = index_oid;
 	}
-
-	if (OidIsValid(index_oid))
-	{
-		/* Remove the WITH INDEX clause. DefineIndex() does not understand it.*/
-		idx_stmt->options = list_delete_cell(idx_stmt->options, option, prev);
-
-		/*
-		 * If there's no CONSTRAINT clause, assign a constraint name. If we
-		 * don't do it here then DefineIndex() will choose a system generated
-		 * name, and we don't want that.
-		 */
-		if (idx_stmt->idxname == NULL)
-		{
-			idx_stmt->idxname = ChooseIndexName(RelationGetRelationName(rel),
-										RelationGetNamespace(rel),
-										ChooseIndexColumnNames(idx_stmt->indexParams),
-										/* Don't need this, but it won't hurt */
-										idx_stmt->excludeOpNames,
-										idx_stmt->primary,
-										true);
-		}
-
-		/* Rename index to maintain consistency with the rest of the code */
-		RenameRelation(index_oid, idx_stmt->idxname, OBJECT_INDEX);
-
-		ereport(NOTICE,
-				(errmsg("ALTER TABLE / ADD CONSTRAINT WITH will rename index"
-						" \"%s\" to \"%s\"",
-						index_name, idx_stmt->idxname)));
-
-		/* Close the relation but keep the lock */
-		relation_close(rel, NoLock);
-	}
-
-	return index_oid;
-}
-	
-	}
-#endif
 
 	/*
 	 * For UNIQUE and PRIMARY KEY, we just have a list of column names.

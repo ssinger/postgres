@@ -43,6 +43,7 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     ALTER [ COLUMN ] <replaceable class="PARAMETER">column</replaceable> RESET ( <replaceable class="PARAMETER">attribute_option</replaceable> [, ... ] )
     ALTER [ COLUMN ] <replaceable class="PARAMETER">column</replaceable> SET STORAGE { PLAIN | EXTERNAL | EXTENDED | MAIN }
     ADD <replaceable class="PARAMETER">table_constraint</replaceable>
+    ADD <replaceable class="PARAMETER">table_constraint_using_index</replaceable>
     DROP CONSTRAINT [ IF EXISTS ]  <replaceable class="PARAMETER">constraint_name</replaceable> [ RESTRICT | CASCADE ]
     DISABLE TRIGGER [ <replaceable class="PARAMETER">trigger_name</replaceable> | ALL | USER ]
     ENABLE TRIGGER [ <replaceable class="PARAMETER">trigger_name</replaceable> | ALL | USER ]
@@ -62,6 +63,14 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     NO INHERIT <replaceable class="PARAMETER">parent_table</replaceable>
     OWNER TO <replaceable class="PARAMETER">new_owner</replaceable>
     SET TABLESPACE <replaceable class="PARAMETER">new_tablespace</replaceable>
+
+<phrase>and <replaceable class="PARAMETER">table_constraint_using_index</replaceable> is:</phrase>
+
+    [ CONSTRAINT <replaceable class="PARAMETER">constraint_name</replaceable> ]
+    { UNIQUE USING INDEX <replaceable class="PARAMETER">index_name</replaceable> |
+      PRIMARY KEY USING INDEX <replaceable class="PARAMETER">index_name</replaceable> }
+    [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ]
+
 </synopsis>
  </refsynopsisdiv>
 
