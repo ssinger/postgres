@@ -2860,10 +2860,6 @@ OptConsTableSpace:   USING INDEX TABLESPACE name	{ $$ = $4; }
 ConstraintIndex:   USING INDEX name	{ $$ = $3; }
 		;
 
-/*
- * OptConsTableSpaceOrIndex:	OptConsTableSpace
- */
-
 
 /*
  * Note: CREATE TABLE ... AS SELECT ... is just another spelling for
