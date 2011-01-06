@@ -5014,7 +5014,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 			ereport(NOTICE,
 					(errmsg("ALTER TABLE / ADD %s USING INDEX will rename index"
 							" \"%s\" to \"%s\"",
-							stmt->primary ? "PRIMARY" : "UNIQUE",
+							stmt->primary ? "PRIMARY KEY" : "UNIQUE",
 							existing_index_name, stmt->idxname)));
 
 			/* Rename index to maintain consistency with the rest of the code */
