@@ -235,26 +235,38 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
       This form adds a new constraint to a table using the same syntax as
       <xref linkend="SQL-CREATETABLE">.
      </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><literal>ADD <replaceable class="PARAMETER">table_constraint_using_index</replaceable></literal></term>
+    <listitem>
+     <para>
+      This form adds a new <literal>PRIMARY KEY</> or <literal>UNIQUE</>
+      constraint to the table using an existing index. All the columns of the
+      index will be included in the constraint.
+     </para>
 
      <para>
-      Additionally, for a <literal>PRIMARY KEY</> or a <literal>UNIQUE</> constraint, the
-      <literal>WITH</> clause of <replaceable>index_parameters</> can also
-      include an <literal>INDEX='<replaceable>value</>'</literal> option, to
-      specify that an existing index should be used to create the new constraint.
+      The index should be UNIQUE, and should not be a <firstterm>partial index</>
+      or an <firstterm>expressional index</>.
+     </para>
+
+     <para>
       This can be helpful in situations where one wishes to recreate or
       <literal>REINDEX</> the index of a <literal>PRIMARY KEY</> or a
       <literal>UNIQUE</> constraint, but dropping and recreating the constraint
-      to acheive the effect is not desirable. See an illustrative example below.
+      to acheive the effect is not desirable. See the illustrative example below.
      </para>
 
-    <note>
+     <note>
      <para>
       If a constraint name is provided then the index will be renamed to that
-      name, else the index will be renamed using a system-generated name.
+      name, else the constraint will be named to match the index name.
      </para>
     </note>
 
-    </listitem>
+   </listitem>
    </varlistentry>
 
    <varlistentry>
@@ -953,7 +965,7 @@ ALTER TABLE myschema.distributors SET SCHEMA yourschema;
 <programlisting>
 CREATE UNIQUE INDEX CONCURRENTLY dist_id_uniq_idx on distributors (dist_id);
 ALTER TABLE distributors DROP CONSTRAINT distributors_pkey,
-    ADD PRIMARY KEY (dist_id) WITH (INDEX='dist_id_uniq_idx');
+    ADD CONSTRAINT distributors_pkey PRIMARY KEY USING dist_id_uniq_idx;
 </programlisting>
   </para>
 

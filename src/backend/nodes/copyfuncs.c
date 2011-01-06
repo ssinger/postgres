@@ -2233,6 +2233,7 @@ _copyConstraint(Constraint *from)
 	COPY_NODE_FIELD(keys);
 	COPY_NODE_FIELD(exclusions);
 	COPY_NODE_FIELD(options);
+	COPY_STRING_FIELD(indexname);
 	COPY_STRING_FIELD(indexspace);
 	COPY_STRING_FIELD(access_method);
 	COPY_NODE_FIELD(where_clause);
@@ -2711,6 +2712,7 @@ _copyIndexStmt(IndexStmt *from)
 	COPY_SCALAR_FIELD(deferrable);
 	COPY_SCALAR_FIELD(initdeferred);
 	COPY_SCALAR_FIELD(concurrent);
+	COPY_SCALAR_FIELD(indexoid);
 
 	return newnode;
 }

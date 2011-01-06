@@ -1357,9 +1357,9 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 	if (constraint->keys == NIL)
 	{
 		int			i;
-		Oid			index_oid	= InvalidOid;
+		Relation	rel			= cxt->rel;
+		Oid			index_oid;
 		char	   *index_name;
-		Relation	rel			= ctx->rel;
 
 		Relation		index_rel;
 		Form_pg_index	index_form;
@@ -1371,7 +1371,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		/* Make sure grammar doesn't allow this */
 		Assert(constraint->indexname != NULL);
 
-		if (!cxt->alter)
+		if (!cxt->isalter)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("cannot use an existing index in CREATE TABLE")));
@@ -1437,7 +1437,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 
 		for (i = 0; i < index_form->indnatts; ++i)
 		{
-			int2 attnum = index_form->indkeys->values[i];
+			int2 attnum = index_form->indkey.values[i];
 			char *attname;
 
 			Assert(attnum <= rel->rd_rel->relnatts);
@@ -1449,16 +1449,16 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 			Assert(!rel->rd_att->attrs[attnum-1]->attisdropped);
 
 			if (attnum > 0)
-				attname = strdup(NameStr(rel->rd_att->attrs[attnum-1].attname));
+				attname = strdup(NameStr(rel->rd_att->attrs[attnum-1]->attname));
 			else if (attnum < 0)
-				attname = NameStr(SystemAttributeDefinition(attnum, rel->rd_rel->relhasoids));
+				attname = NameStr(SystemAttributeDefinition(attnum, rel->rd_rel->relhasoids)->attname);
 			else
 				Assert(false); // We checked above for this case
 
-			constraint->keys = lappend(constraint->keys, attname);
+			constraint->keys = lappend(constraint->keys, makeString(attname));
 		}
 
-		/* Close the index's relation but keep the lock */
+		/* Close the index relation but keep the lock */
 		relation_close(index_rel, NoLock);
 
 		index->indexoid = index_oid;

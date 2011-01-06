@@ -357,7 +357,6 @@ static void ATExecGenericOptions(Relation rel, List *options);
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
 				   ForkNumber forkNum, char relpersistence);
 static const char *storage_name(char c);
-static Oid get_constraint_index_oid(IndexStmt *idx_stmt);
 
 /* ----------------------------------------------------------------
  *		DefineRelation
@@ -4975,7 +4974,6 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 	bool		check_rights;
 	bool		skip_build;
 	bool		quiet;
-	bool		index_exists = false;
 	Oid			index_oid = stmt->indexoid;
 
 	Assert(IsA(stmt, IndexStmt));
@@ -4994,8 +4992,6 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 
 		Assert(existing_index_name != NULL);
 		Assert(stmt->isconstraint);
-
-		index_exists = true;
 
 		/* We override the params set above */
 		skip_build = true;
@@ -5019,7 +5015,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 					(errmsg("ALTER TABLE / ADD %s USING INDEX will rename index"
 							" \"%s\" to \"%s\"",
 							stmt->primary ? "PRIMARY" : "UNIQUE",
-							existing_index_name, idx_stmt->idxname)));
+							existing_index_name, stmt->idxname)));
 
 			/* Rename index to maintain consistency with the rest of the code */
 			RenameRelation(index_oid, stmt->idxname, OBJECT_INDEX);
@@ -5045,7 +5041,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 				true,			/* is_alter_table */
 				check_rights,
 				skip_build,
-				index_exists,
+				OidIsValid(index_oid),
 				quiet,
 				false);
 
@@ -5053,7 +5049,7 @@ ATExecAddIndex(AlteredTableInfo *tab, Relation rel,
 	 * Mark the index as indisprimary. We can't do this before DefineIndex()
 	 * because then it complains about duplicate primary key.
 	 */
-	if (index_exists)
+	if (OidIsValid(index_oid))
 	{
 		Relation		pg_index;
 		HeapTuple		indexTuple;
