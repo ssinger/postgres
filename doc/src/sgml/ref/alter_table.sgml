@@ -242,27 +242,29 @@ ALTER TABLE <replaceable class="PARAMETER">name</replaceable>
     <term><literal>ADD <replaceable class="PARAMETER">table_constraint_using_index</replaceable></literal></term>
     <listitem>
      <para>
-      This form adds a new <literal>PRIMARY KEY</> or <literal>UNIQUE</>
+      This form adds a new <literal>PRIMARY KEY</> or <literal>UNIQUE</literal>
       constraint to the table using an existing index. All the columns of the
       index will be included in the constraint.
      </para>
 
      <para>
-      The index should be UNIQUE, and should not be a <firstterm>partial index</>
-      or an <firstterm>expressional index</>.
+      The index should be a UNIQUE index. A <firstterm>partial index</firstterm>
+	  or an <firstterm>expressional index</firstterm> is not allowed.
      </para>
 
      <para>
-      This can be helpful in situations where one wishes to recreate or
-      <literal>REINDEX</> the index of a <literal>PRIMARY KEY</> or a
-      <literal>UNIQUE</> constraint, but dropping and recreating the constraint
-      to acheive the effect is not desirable. See the illustrative example below.
+      Adding a constraint using an existing index can be helpful in situations 
+	  where you wishes to rebuild an index used for a  
+	  <literal>PRIMARY KEY</literal> or a <literal>UNIQUE</literal> constraint,
+	  but dropping and recreating the constraint
+      is not desirable. See the illustrative example below.
      </para>
 
      <note>
      <para>
       If a constraint name is provided then the index will be renamed to that
-      name, else the constraint will be named to match the index name.
+      name of the constraint. Otherwise the constraint will be named to match 
+	  the index name.
      </para>
     </note>
 
