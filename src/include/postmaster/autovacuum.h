@@ -27,6 +27,7 @@ extern double autovacuum_anl_scale;
 extern int	autovacuum_freeze_max_age;
 extern int	autovacuum_vac_cost_delay;
 extern int	autovacuum_vac_cost_limit;
+extern int	autovacuum_truncate_chunksize;
 
 /* autovacuum launcher PID, only valid when worker is shutting down */
 extern int	AutovacuumLauncherPid;

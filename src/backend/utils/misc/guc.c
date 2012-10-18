@@ -2263,6 +2263,17 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"autovacuum_truncate_chunksize", PGC_SIGHUP, AUTOVACUUM,
+			gettext_noop("Maximum number of blucks to truncate in a vacuum before checking if someone is waiting on the table lock."),
+			NULL
+		},
+		&autovacuum_truncate_chunksize,
+		0, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+	
+
+	{
 		{"tcp_keepalives_idle", PGC_USERSET, CLIENT_CONN_OTHER,
 			gettext_noop("Time between issuing TCP keepalives."),
 			gettext_noop("A value of 0 uses the system default."),

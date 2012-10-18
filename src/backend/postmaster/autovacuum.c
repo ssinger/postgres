@@ -112,7 +112,7 @@ int			autovacuum_freeze_max_age;
 
 int			autovacuum_vac_cost_delay;
 int			autovacuum_vac_cost_limit;
-
+int			autovacuum_truncate_chunksize;
 int			Log_autovacuum_min_duration = -1;
 
 /* how long to keep pgstat data in the launcher, in milliseconds */
